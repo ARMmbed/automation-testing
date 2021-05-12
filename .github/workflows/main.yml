@@ -9,9 +9,9 @@ jobs:
     steps:
     - name: Hello world action step
       id: hello
-#      uses: actions/hello-world-docker-action@v1
       - uses: actions/checkout@v2
-
+        with:
+          fetch-depth: 0
       - uses: ARMmbed/github-to-jira-test/.github/actions/action@master
         with:
           who-to-greet: 'Mona the Octocat'
