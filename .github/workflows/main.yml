@@ -10,7 +10,7 @@ jobs:
     - name: Hello world action step
       id: hello
 #      uses: actions/hello-world-docker-action@v1
-      uses: ARMmbed/github-to-jira-test/.github/actions/action.yml
+      uses: ARMmbed/github-to-jira-test/.github/actions/action@v1
       with:
         who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
