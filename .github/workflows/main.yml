@@ -7,14 +7,12 @@ jobs:
     runs-on: ubuntu-latest
     name: A job to say hello
     steps:
-    - name: Hello world action step
-      id: hello
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - uses: ARMmbed/github-to-jira-test/.github/actions/action@master
-        with:
-          who-to-greet: 'Mona the Octocat'
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - uses: ARMmbed/github-to-jira-test/.github/actions/action@master
+      with:
+        who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
 #    - name: Get the output time
 #      run: echo "The time was ${{ steps.hello.outputs.time }}"
