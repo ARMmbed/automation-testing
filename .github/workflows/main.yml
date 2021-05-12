@@ -10,8 +10,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    - uses: ./.github/actions/action@master
-#    - uses: ARMmbed/github-to-jira-test/.github/actions/action@master
+    - uses: ARMmbed/github-to-jira-test/.github/actions@master
       with:
         who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
