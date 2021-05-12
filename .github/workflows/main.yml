@@ -10,11 +10,11 @@ jobs:
     - name: Hello world action step
       id: hello
 #      uses: actions/hello-world-docker-action@v1
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-      uses: ARMmbed/github-to-jira-test/.github/actions/action@master
-      with:
-        who-to-greet: 'Mona the Octocat'
+      - uses: ARMmbed/github-to-jira-test/.github/actions/action@master
+        with:
+          who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
 #    - name: Get the output time
 #      run: echo "The time was ${{ steps.hello.outputs.time }}"
