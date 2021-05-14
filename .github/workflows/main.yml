@@ -9,10 +9,6 @@ jobs:
     strategy:
       matrix:
         python-version: [3.6, 3.7, 3.8]
-
-    env:
-      SUPER_SECRET: ${{ secrets.SuperSecret }}
-
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{ matrix.python-version }}
@@ -27,6 +23,8 @@ jobs:
       with:
         issue_num: ${{github.event.issue.number}}
         repo_name: ${{ github.event.repository.name }}
+        SUPER_SECRET: ${{ secrets.SuperSecret }}
+
       run: |  
         python triaging.py -i issue_num -r repo_name -t SUPER_SECRET
 
