@@ -19,51 +19,14 @@
 import os
 import sys
 import argparse
-import json
-import logging
-import netrc
-import traceback
 import subprocess
 from time import sleep
 from contextlib import contextmanager
 from github import Github, GithubException
-from mailer import Mailer
-from mailer import Message
-import pytz
-
-userlog = logging.getLogger("Issues")
-
-# Set logging level
-userlog.setLevel(logging.DEBUG)
-
-# Everything is output to the log file
-logfile = os.path.join(os.getcwd(), "Issues.log")
-log_file_handler = logging.FileHandler(logfile, mode="w")
-log_file_handler.setLevel(logging.DEBUG)
-
-# create console handler with a higher log level
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-formatter = logging.Formatter("%(name)s: %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
-log_file_handler.setFormatter(formatter)
-
-# add the handlers to the logger
-userlog.addHandler(log_file_handler)
-userlog.addHandler(console_handler)
 
 GIT_ACCOUNT = "ARMmbed"
+LOGIN = "adbridge"
 MIN_NUM_DESCRIPTION_WORDS = 25
-
-
-class Github_backoff_error(Exception):
-    """Backoff on Github error.
-
-    @inherits Exception"""
-
-    pass
-
 
 class Command_retry_error(Exception):
     """Retry command on github interface error.
@@ -82,8 +45,8 @@ def exit_on_exception(text):
     try:
         yield
     except Exception as exc:
-        userlog.error(text)
-        userlog.exception(exc)
+        print(error(text))
+        print(exception(exc))
         sys.exit(1)
 
 
@@ -110,12 +73,10 @@ def run_cmd_with_retries(raise_exception, cmd, *argv, **kwargs):
     retries = 5
     while True:
         try:
-            userlog.info("Running command %s(%s, %s)", cmd, argv, kwargs)
             retval = cmd(*argv, **kwargs)
             break
         except (Exception, GithubException) as exc:
-            userlog.error("Failed: %s", cmd)
-            userlog.exception(exc)
+            print(exception(exc))
             retries -= 1
             if retries == 0:
                 if raise_exception:
@@ -127,123 +88,6 @@ def run_cmd_with_retries(raise_exception, cmd, *argv, **kwargs):
             sleep(30)
 
     return retval, None
-
-
-def run_cmd_with_output(command, exit_on_failure=False):
-    """Run a system command returning a status result and any command output.
-
-    Passes a command to the system and returns a True/False result once the
-    command has been executed, indicating success/failure. If the command was
-    successful then the output from the command is returned to the caller.
-    Commands are passed as a string.
-    E.g. The command 'git remote -v' would be passed in as "git remote -v"
-
-    Args:
-    command - system command as a string
-    exit_on_failure - If True exit the program on failure (default = False)
-
-    Returns:
-    return_code - True/False indicating the success/failure of the command
-    output - The output of the command if it was successful, else empty string
-    """
-    text = "[Exec] " + command
-    userlog.debug(text)
-    returncode = 0
-    output = ""
-    try:
-        output = subprocess.check_output(command, shell=True)
-    except subprocess.CalledProcessError as error:
-        text = (
-                "The command "
-                + str(command)
-                + "failed with return code: "
-                + str(error.returncode)
-        )
-        userlog.warning(text)
-        returncode = error.returncode
-        if exit_on_failure:
-            sys.exit(1)
-    return returncode, output
-
-
-def ensure_available_rate_limits(github):
-    """Check available GitHub requests.
-
-    GitHub applies the following rate limiting:
-    1. OAuth applications limited to 5000 requests per hour.
-    2. Searches limited to 30 requests per minute
-
-    This function will cause a back off for 30s if one of the following occurs:
-    1. Standard requests have exceeded 90% of availablity
-    2. Searches have exceeded 50% of availability
-
-    Number of retries is set to 60 which would equate to 30 mins back off. If
-    the limits have not recovered within this period then abort the script.
-    Args: github - Main GitHub object
-    """
-    retries = 60
-    notified = False
-    raise_exception = True
-    while True:
-        limits, _ = run_cmd_with_retries(raise_exception, github.get_rate_limit)
-
-        if limits.search.remaining >= (
-                limits.search.limit / 2
-        ) and limits.core.remaining >= (limits.core.limit / 10):
-            break
-        if not notified:
-            userlog.info("Backing off due to GitHub rate limiting....")
-            notified = True
-        sleep(30)
-        retries = retries - 1
-        if retries == 0:
-            raise Github_backoff_error("Command failed after several retries")
-
-
-def get_labels(git_object, match=None):
-    """Get the current labels for the specified git object.
-
-         If the optional parameter 'match' is set then only labels containing the
-         matching string will be returned
-
-    Args:
-    git_object - GitHub object using labels, can either be a repo, issue or PR object
-
-    Returns:
-    labels - set of matching label objects
-    """
-    raise_exception = True
-    label_objects, _ = run_cmd_with_retries(raise_exception, git_object.get_labels)
-
-    if match:
-        labels = [label for label in label_objects if match in label.name]
-    else:
-        labels = label_objects
-
-    return labels
-
-
-
-def get_github_access():
-    """Get an authenticated GitHub object.
-
-    Reads the authentication credentials from the netrc file and uses them to
-    obtain an authorized GitHub access object.
-
-    Returns:
-    github - GitHub object
-
-    """
-    home = os.environ["HOME"]
-    netrc_file = os.path.join(home, ".netrc")
-    with exit_on_exception("Cannot obtain authorization credentials."):
-        auth = netrc.netrc(netrc_file)
-        login, _, token = auth.authenticators("local")
-
-    github = Github(str(login), str(token))
-
-    return github
-
 
 def get_git_repo(github, git_account, repo_name):
     """Get the repo object for the specified account and repo name.
@@ -264,70 +108,12 @@ def get_git_repo(github, git_account, repo_name):
     repo, exc = run_cmd_with_retries(raise_exception, github.get_repo, repo_path, False)
 
     if exc:
-        userlog.error("**** Cannot access: %s ****", repo_path)
-        userlog.error(exc)
+        print("**** Cannot access: repo path ****")
+        print(error(exc))
         repo = None
 
     return repo
 
-
-def get_newly_opened_github_issues(github, repo_name):
-    """Return a list of GitHub issues that are open and not already mirrored.
-
-    Args:
-    github - GitHub object
-    repo_name - Repository to check for open issues
-
-    Returns:
-    list of Github issues
-
-    """
-
-    # A new issue will have no priority label at all yet
-    full_repo = "".join(["repo:", GIT_ACCOUNT, "/", repo_name])
-    new_issue_filter = " ".join(
-        [
-            full_repo,
-            "is:issue",
-            "is:open",
-            '-label:"priority: untriaged"',
-            '-label:"priority: high"',
-            '-label:"priority: medium"',
-            '-label:"priority: community contribution"'
-        ]
-    )
-
-    # Github search function requires the filter query as a string
-    userlog.info("Running filter: '%s'", new_issue_filter)
-    raise_exception = False
-    new_open, exc = run_cmd_with_retries(
-        raise_exception, github.search_issues, query=new_issue_filter
-    )
-
-    if exc:
-        userlog.error("Could not read newly opened GitHub issues for %s", repo_name)
-        return None
-
-    return new_open
-
-
-def email_user(email, subject, body, from_address):
-    """Send an email.
-
-    Args:
-    email - email address to send to
-    subject - email subject
-    body - email body
-    from_address - email address (from)
-
-    """
-    message = Message(From=from_address, To=email)
-    message.Subject = subject
-
-    message.Html = body.encode("ascii", errors="replace")
-
-    sender = Mailer("smtp.emea.arm.com")
-    sender.send(message)
 
 def parse_body(body):
     """Parse the header body of a GitHub issue.
@@ -519,136 +305,77 @@ def main():
     arg_parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    help_config = "Path to the repository configuration file (default is 'repos.json')"
-    arg_parser.add_argument(
-        "-f",
-        "--config_file",
-        help=help_config,
-        default=os.path.join(
-            os.path.abspath(os.path.dirname(__file__)), "config/repos.json"
-        ),
-        type=argparse.FileType("r")
-    )
-    help_issue = "Specify a repo/issue for testing new issue triaging. E.g. mbed-os:1200"
+    help_issue = "Specify an issue number for new issue triaging. E.g. 1200"
     arg_parser.add_argument(
         "-i",
         "--issue",
+        required=True,
+        help=help_issue
+    )
+
+    help_issue = "Specify a repo name for new issue triaging. E.g. mbed-os"
+    arg_parser.add_argument(
+        "-r",
+        "--repo",
+        required=True,
+        help=help_issue
+    )
+
+    help_issue = "GitHub token provided by a secret"
+    arg_parser.add_argument(
+        "-t",
+        "--token",
+        required=True,
         help=help_issue
     )
 
     args = arg_parser.parse_args()
 
-    # Top level exception handling
-    try:
+    repo_name = args.repo
+    issue_num = args.issue
 
-        # Get GitHub access objects
-        github_class = get_github_access()
+    # Get GitHub access objects
+    github_class = Github(LOGIN, str(args.token))
 
-        if args.issue:
-            userlog.info("Running in test mode using %s", args.issue)
+    with exit_on_exception("Cannot get organization for: ARMmbed"):
+        org = github_class.get_organization("ARMmbed")
 
-            issue_parse = args.issue.split(":")
+    workflow_start_col = None
+    severity_start_col = None
 
-            userlog.info("Repo name = %s", issue_parse[0])
-            userlog.info("Issue number = %s", issue_parse[1])
+    with exit_on_exception("Cannot get organization issue projects for: ARMmbed"):
+        project_objs = org.get_projects()
+        for proj_obj in project_objs:
 
-            repos = [
-                {
-                    "name" : issue_parse[0],
-                    "template_verify" : True,
-                    "nagbot_on" : True
-                }
-            ]
+            column_objs = proj_obj.get_columns()
+            for column in column_objs:
+                if "Workflow" in proj_obj.name and "Needs Triage" in column.name:
+                    workflow_start_col = column
+                if "Severity" in proj_obj.name and "Untriaged" in column.name:
+                    severity_start_col = column
 
-        else:
+        if workflow_start_col is None or severity_start_col is None:
+            raise ValueError
 
-            # Load the config file
-            config = json.load(args.config_file)
+        repo_obj = get_git_repo(github_class, GIT_ACCOUNT, repo_name)
 
-            if not config:
-                text = "Failed to load config file: " + str(args.config_file)
-                userlog.error(text)
-                sys.exit(1)
+        if repo_obj:
 
-            repos = config["repos"]
+            issue_obj = repo_obj.get_issue(int(issue_num))
 
-        with exit_on_exception("Cannot get organization for: ARMmbed"):
-            org = github_class.get_organization("ARMmbed")
+            # Add project cards for this issue
+            workflow_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
+            severity_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
 
-        workflow_start_col = None
-        severity_start_col = None
+            # Add priority untriaged label
+            issue_obj.add_to_labels("priority: untriaged")
 
-        with exit_on_exception("Cannot get organization issue projects for: ARMmbed"):
-            project_objs = org.get_projects()
-            for proj_obj in project_objs:
-                userlog.info("Project name: %s, Id: %s",proj_obj.name, proj_obj.id)
+            # Set component to Untriaged
+            issue_obj.add_to_labels("component: untriaged")
 
-                column_objs = proj_obj.get_columns()
-                userlog.info("\tColumns:")
-                for column in column_objs:
-                    userlog.info("\t\tName: %s, Id: %s", column.name, column.id)
-                    if "Workflow" in proj_obj.name and "Needs Triage" in column.name:
-                        workflow_start_col = column
-                    if "Severity" in proj_obj.name and "Untriaged" in column.name:
-                        severity_start_col = column
+            # Now validate issue header and comment if required
+            process_issue_header(github_class, issue_obj, repo_obj)
 
-            if workflow_start_col is None or severity_start_col is None:
-                raise ValueError
-
-
-        for repo_obj in repos:
-
-            # Add small delay to stop GitHub hitting the 30 search requests per min
-            # rate limit
-            sleep(10)
-
-            repo_name = repo_obj["name"]
-            repo = get_git_repo(github_class, GIT_ACCOUNT, repo_name)
-
-            if repo:
-
-                if args.issue:
-
-                    test_issue = repo.get_issue(int(issue_parse[1]))
-                    new_issues = [test_issue]
-
-                else:
-                    new_issues = get_newly_opened_github_issues(github_class, repo_name)
-
-                userlog.info("New issues:")
-                for issue in new_issues:
-                    userlog.info("\tTitle: %s, Num: %s", issue.title, issue.number)
-
-                    # Add project cards for this issue
-                    workflow_start_col.create_card(content_id = issue.id, content_type = "Issue")
-                    severity_start_col.create_card(content_id = issue.id, content_type = "Issue")
-
-                    # Add priority untriaged label
-                    issue.add_to_labels("priority: untriaged")
-
-                    # Set component to Untriaged
-                    issue.add_to_labels("component: untriaged")
-
-                    # Now validate issue header and comment if required
-                    if repo_obj["template_verify"]:
-                        process_issue_header(github_class, issue, repo)
-
-    except Exception:
-        # Notify maintainers of bot exception.
-        err = traceback.format_exc()
-        userlog.exception(err)
-
-        body = """<p>THIS IS AN AUTOMATED EMAIL</p> <p>The issue triaging automated""" \
-               """ script just failed with the following exception:</p> """
-        for line in err.splitlines():
-            body += """<p>%s</p>""" % line
-        body += """Please check the latest log file for further details.</p>"""
-        email_user(
-            "mbed-os-maintainers@arm.com",
-            "Issue triaging  Script FAILURE",
-            body,
-            "ciarmcom@arm.com"
-        )
 
 if __name__ == "__main__":
     main()
