@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: ARMmbed/mbed-os-ci-scripts
+          token: ${{ secrets.ISSUE_TRIAGING_PERMS }}
           path: scripts
       - name: Run script from the other repo
         run: |
