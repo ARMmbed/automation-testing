@@ -22,6 +22,6 @@ jobs:
         with:
           repository: ARMmbed/mbed-os-ci-scripts
           path: scripts
+      - name: Run script from the other repo
         run: |
-          scripts/mbed-os-c--scripts/metrics/__init__.py --help
-          
+          scripts/mbed-os-ci-scripts/metrics/__init__.py --help
