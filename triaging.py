@@ -367,18 +367,22 @@ def main():
 
     if repo_obj:
 
-        issue_obj = repo_obj.get_issue(int(issue_num))
+        try:
+            issue_obj = repo_obj.get_issue(int(issue_num))
 
-        # Add project cards for this issue
-        workflow_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
-        severity_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
+            # Add project cards for this issue
+            workflow_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
+            severity_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
 
-        # Add priority untriaged label
-        issue_obj.add_to_labels("priority: untriaged")
+            # Add priority untriaged label
+            issue_obj.add_to_labels("priority: untriaged")
 
-        # Set component to Untriaged
-        issue_obj.add_to_labels("component: untriaged")
+            # Set component to Untriaged
+            issue_obj.add_to_labels("component: untriaged")
 
+        except Exception as exc:
+            print("Could not add issue cards to projects!")
+            
         # Now validate issue header and comment if required
         process_issue_header(github_class, issue_obj, repo_obj)
 
