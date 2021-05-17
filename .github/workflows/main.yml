@@ -25,4 +25,5 @@ jobs:
           path: scripts
       - name: Run script from the other repo
         run: |
-          scripts/mbed-os-ci-scripts/metrics/__init__.py --help
+          cp -a scripts/mbed-os-ci-scripts $(git --exec-path)
+          python $(git --exec-path)/mbed-os-ci-scripts/metrics/__init__.py --help
