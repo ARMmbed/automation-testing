@@ -16,5 +16,12 @@ jobs:
       - name: Run the script
         run: |
           python -m pip install pygithub
-          python triaging.py -i ${{github.event.issue.number}} -r ${{ github.event.repository.name }} -t ${{ secrets.ISSUE_TRIAGING_PERMS }}
-
+#          python triaging.py -i ${{github.event.issue.number}} -r ${{ github.event.repository.name }} -t ${{ secrets.ISSUE_TRIAGING_PERMS }}
+      - name: Checkout another repo
+        uses: actions/checkout@v2
+        with:
+          repository: ARMmbed/mbed-os-ci-scripts
+          path: scripts
+        run: |
+          scripts/mbed-os-c--scripts/metrics/__init__.py --help
+          
