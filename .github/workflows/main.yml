@@ -22,8 +22,8 @@ jobs:
         with:
           repository: ARMmbed/mbed-os-ci-scripts
           token: ${{ secrets.ISSUE_TRIAGING_PERMS }}
-          path: scripts
+          path: mbed-os-ci-scripts
       - name: Run script from the other repo
         run: |
-          cp -a scripts/mbed-os-ci-scripts $(git --exec-path)
+          cp -a mbed-os-ci-scripts/mbed-os-ci-scripts $(git --exec-path)
           python $(git --exec-path)/mbed-os-ci-scripts/metrics/__init__.py --help
