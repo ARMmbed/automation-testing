@@ -338,6 +338,9 @@ def main():
 
     print("Running....")
 
+    print("Repo name = %s", repo_name)
+    print("Issue number = %s", issue_num)
+
     # Get GitHub access objects
     github_class = Github(LOGIN, str(args.token))
 

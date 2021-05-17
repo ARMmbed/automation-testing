@@ -16,6 +16,6 @@ jobs:
       - name: Run the script
         run: |
           python -m pip install pygithub
-          ISSUE_TOKEN = ${{ secrets.TestSecret }}
+          ISSUE_TOKEN = ${{ secrets.ISSUE_TRIAGING_PERMS }}
           python triaging.py -i ${{github.event.issue.number}} -r ${{ github.event.repository.name }} -t ISSUE_TOKEN
 
