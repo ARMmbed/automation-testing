@@ -16,6 +16,6 @@ jobs:
       - name: Run the script
         run: |
           python -m pip install pygithub
-          GITHUB_TOKEN = ${{ secrets.TestSecret }}
-          python triaging.py -i ${{github.event.issue.number}} -r ${{ github.event.repository.name }}
+          ISSUE_TOKEN = ${{ secrets.TestSecret }}
+          python triaging.py -i ${{github.event.issue.number}} -r ${{ github.event.repository.name }} -t ISSUE_TOKEN
 
