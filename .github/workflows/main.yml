@@ -23,6 +23,10 @@ jobs:
           repository: ARMmbed/mbed-os-ci-scripts
           token: ${{ secrets.ISSUE_TRIAGING_PERMS }}
           path: mbed-os-ci-scripts
+      - name: Show file system
+        run: |
+          ls -al
+
       - name: Run script from the other repo
         run: |
           cp -a mbed-os-ci-scripts/mbed-os-ci-scripts $(git --exec-path)
