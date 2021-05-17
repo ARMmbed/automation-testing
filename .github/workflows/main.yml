@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - env: # Set the secret as an input
+    - with: # Set the secret as an input
         GITHUB_TOKEN: ${{ secrets.TestSecret }}
 
     - uses: actions/checkout@v2
