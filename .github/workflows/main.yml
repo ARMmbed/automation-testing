@@ -25,9 +25,8 @@ jobs:
           path: mbed-os-ci-scripts
       - name: Show file system
         run: |
-          ls -al
+          ls -alR
 
       - name: Run script from the other repo
         run: |
-          cp -a mbed-os-ci-scripts/mbed-os-ci-scripts $(git --exec-path)
-          python $(git --exec-path)/mbed-os-ci-scripts/metrics/__init__.py --help
+          python ./mbed-os-ci-scripts/metrics/__init__.py --help
