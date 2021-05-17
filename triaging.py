@@ -321,18 +321,22 @@ def main():
         help=help_issue
     )
 
-    help_issue = "GitHub token provided by a secret"
-    arg_parser.add_argument(
-        "-t",
-        "--token",
-        required=True,
-        help=help_issue
-    )
+#    help_issue = "GitHub token provided by a secret"
+#    arg_parser.add_argument(
+#        "-t",
+#        "--token",
+#        required=True,
+#        help=help_issue
+#    )
 
     args = arg_parser.parse_args()
 
     repo_name = args.repo
     issue_num = args.issue
+
+    token = os.environ['GITHUB_TOKEN']
+
+    print("Running....")
 
     # Get GitHub access objects
     github_class = Github(LOGIN, str(args.token))
