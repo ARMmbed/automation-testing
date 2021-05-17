@@ -20,6 +20,7 @@ import os
 import sys
 import argparse
 import subprocess
+import traceback
 from time import sleep
 from contextlib import contextmanager
 from github import Github, GithubException
@@ -45,8 +46,8 @@ def exit_on_exception(text):
     try:
         yield
     except Exception as exc:
-        print(error(text))
-        print(exception(exc))
+        print(text)
+        print(exc)
         sys.exit(1)
 
 
@@ -238,8 +239,8 @@ def check_github_issue_template(github, parsed, issue, repo):
     for comment in comments:
         if header_new in comment.body:
             update_prompted = True
-            userlog.info(
-                "Found previous comment requesting template update:\n%s", comment.body
+            print(
+                "Found previous comment requesting template update:\n", comment.body
             )
 
     if added_prompt != "" and not update_prompted:
@@ -248,7 +249,7 @@ def check_github_issue_template(github, parsed, issue, repo):
         # comments.
 
         prompt = header_new
-        userlog.info("Adding new template comment")
+        print("Adding new template comment")
 
         prompt += added_prompt
         prompt += "\nNOTE: If there are fields which are not applicable then please " \
@@ -262,7 +263,7 @@ def check_github_issue_template(github, parsed, issue, repo):
         _, exc = run_cmd_with_retries(raise_exception, issue.create_comment, prompt)
 
         if exc:
-            userlog.error("Could not add comment to #%s", issue.number)
+            print("Could not add comment to #", issue.number)
 
 def process_issue_header(github, issue, repo):
     """Get the issue header and checks the description and issue type sections.
@@ -278,17 +279,17 @@ def process_issue_header(github, issue, repo):
     # constituent parts
     parsed = parse_body(issue.body)
 
-    userlog.info(
-        "Found the following template data for issue #%s:", 
+    print(
+        "Found the following template data for issue #", 
         issue.number 
     )
 
-    userlog.info("\tDescription: %s:", parsed["description"]["text"])
-    userlog.info("\tTargets: %s:", parsed["targets"]["text"])
-    userlog.info("\tToolchains: %s:", parsed["toolchains"]["text"])
-    userlog.info("\tMbed Version: %s:", parsed["mbed_version"]["text"])
-    userlog.info("\tTools/versions: %s:", parsed["tools_versions"]["text"])
-    userlog.info("\tHow to reproduce: %s:", parsed["reproduction"]["text"])
+    print("\tDescription: ", parsed["description"]["text"])
+    print("\tTargets: ", parsed["targets"]["text"])
+    print("\tToolchains: ", parsed["toolchains"]["text"])
+    print("\tMbed Version: ", parsed["mbed_version"]["text"])
+    print("\tTools/versions: ", parsed["tools_versions"]["text"])
+    print("\tHow to reproduce: ", parsed["reproduction"]["text"])
 
     if parsed is not None:
         # Check conformance of the issue template
@@ -296,7 +297,7 @@ def process_issue_header(github, issue, repo):
         check_github_issue_template(github, parsed, issue, repo)
 
     else:
-        userlog.error(
+        print(
             "Issue header could not be parsed."
         )
 
@@ -338,8 +339,8 @@ def main():
 
     print("Running....")
 
-    print("Repo name = %s", repo_name)
-    print("Issue number = %s", issue_num)
+    print("Repo name = ", repo_name)
+    print("Issue number = ", issue_num)
 
     # Get GitHub access objects
     github_class = Github(LOGIN, str(args.token))
