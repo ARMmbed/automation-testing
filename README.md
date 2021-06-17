@@ -1,14 +1,8 @@
-# github-to-jira-test
-Repo for testing the github2jira script on the live system
+# automation-testing
+Repo for testing all automation installations in the live system
 
-Add labels/issues for testing the script functionality.
+Including but not limited to GitHub Actions and scripts running in our internal VM.
 
-Plus any other git operations that may be testable.
-
-Including but not limited to:
-branching model testing
-
-Also used for testing examples updating and metrics gathering
 
     Designed for internal Arm use only
   
