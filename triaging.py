@@ -257,9 +257,10 @@ def main():
 
     args = arg_parser.parse_args()
 
-    raise ValueError
-
     try:
+
+        raise ValueError
+
         # Get GitHub access objects
         github_class = Github(LOGIN, str(args.token))
 
