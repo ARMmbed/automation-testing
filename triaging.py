@@ -12,314 +12,239 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# oss_git_to_jira.py
+# Simplified new issue handling script for use with GitHub actions
 #
-"""Configure newly created GitHub issues."""
+"""Weekly reporting and tidying of mbed projects."""
 
 import os
-import sys
-import argparse
-import subprocess
+import logging
 import traceback
-from time import sleep
-from contextlib import contextmanager
+import argparse
 from github import Github, GithubException
+from os.path import join
+from contextlib import contextmanager
+from mailer import Mailer
+from mailer import Message
+
+userlog = logging.getLogger("Weekly")
+
+# Set logging level
+userlog.setLevel(logging.DEBUG)
+
+# Everything is output to the log file
+logfile = os.path.join(os.getcwd(), 'weekly.log')
+fh = logging.FileHandler(logfile)
+fh.setLevel(logging.DEBUG)
+
+# create console handler with a higher log level
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(name)s: %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+fh.setFormatter(formatter)    
+
+# add the handlers to the logger
+userlog.addHandler(fh)
+userlog.addHandler(ch)
 
 GIT_ACCOUNT = "ARMmbed"
-LOGIN = "adbridge"
-MIN_NUM_DESCRIPTION_WORDS = 25
-
-class Command_retry_error(Exception):
-    """Retry command on github interface error.
-
-    @inherits Exception"""
-
-    pass
-
+LOGIN = "mbedmain"
+REPO_NAME = "mbed-os"
+REPORT_RECIPIENTS = "iot-os-m-core@arm.com"
+PROJECTS_TO_TIDY = ["Mbed Core", "Issue Severity", "Issue Workflow"]
+REPORT_REPO = "Mbed Core"
 
 @contextmanager
 def exit_on_exception(text):
-    """Log error and exits application on exception.
-
-    @input exception text
-    """
     try:
         yield
     except Exception as exc:
-        print(text)
-        print(exc)
-        sys.exit(1)
+        userlog.error(text)
+        userlog.exception(exc)
+        os._exit(1)
 
-
-def run_cmd_with_retries(raise_exception, cmd, *argv, **kwargs):
-    """Run an internally available command or method with retries.
-
-    Executes the supplied command ('cmd') with the supplied arguments ('argv').
-    If the command fails then the failure is logged and the command is retried.
-    Up to 5 retries are available with a 30s delay between each.
-    On successful completion the return from the called command is returned.
-    If the command still fails after the max number of retries then a
-    'Command_retry_error' exception is raised.
+def get_repo_and_org(github_class, git_account, repo_name):
+    """Get the repo and user objects for the specified account and repo name.
 
     Args:
-    raise_exception - If True raise an exception after retries, else return exception
-    cmd - internally available command or method to run
-    argv - list of arguments to be passed to the command invocation
-    kwargs - list of named arguments to be passed to the command invocation
-
-    Returns:
-    retval - return for the called cmd, or None
-    exc - Exception text or None
-    """
-    retries = 5
-    while True:
-        try:
-            retval = cmd(*argv, **kwargs)
-            break
-        except (Exception, GithubException) as exc:
-            print(exception(exc))
-            retries -= 1
-            if retries == 0:
-                if raise_exception:
-                    raise Command_retry_error("Command failed after several retries")
-                else:
-                    return None, exc
-
-            # Wait 30s before retrying the command
-            sleep(30)
-
-    return retval, None
-
-def get_git_repo(github, git_account, repo_name):
-    """Get the repo object for the specified account and repo name.
-
-    Args:
-    github - GitHub object
+    github_class - GitHub object
     git_account - GitHub account
-    repo_name - Repository to check for issues
+    repo_name - Repository to get the object for
 
     Returns:
-    repo - Repository object for the specified repository name or None if the
-           repo could not be found.
-
+    repo - Repository object for the specified repository name
+    org - GitHub organization
     """
     repo_path = git_account + "/" + repo_name
-    raise_exception = False
 
-    repo, exc = run_cmd_with_retries(raise_exception, github.get_repo, repo_path, False)
+    with exit_on_exception("Cannot access: " + str(repo_path)):
+        repo = github_class.get_repo(repo_path, False)
 
-    if exc:
-        print("**** Cannot access: repo path ****")
-        print(error(exc))
-        repo = None
+    with exit_on_exception("Cannot get organization for: ARMmbed"):
+        org = github_class.get_organization("ARMmbed")
 
-    return repo
+    return repo, org
 
-
-def parse_body(body):
-    """Parse the header body of a GitHub issue.
-
-    See https://github.com/ARMmbed/mbed-os/blob/master/.github/issue_template.md for
-    issue format.
+def get_project_obj(project_name, project_objs):
+    """Return the project object matching the name, from the supplied list
 
     Args:
-    body - Issue header
-
+    project_name - GitHub project name
+    project_objs - List of all project objects in the organisation
+ 
     Returns:
-    parsed - dictionary containing the body split into the individual sections
+    The project object if found else None
     """
-    section = None
-    in_guide = False
 
-    # Initialise return dictionary
-    parsed = dict(
-        description=dict(text="", length=0),
-        targets=dict(text="", length=0),
-        toolchains=dict(text="", length=0),
-        mbed_version=dict(text="", length=0),
-        tools_versions=dict(text="", length=0),
-        reproduction=dict(text="", length=0)
+    for obj in project_objs:
+        if project_name in obj.name:
+            return obj
+
+    return None
+
+def produce_weekly_report(project_name, email_addr, project_objs):
+    """Produce a weekly report using issues in the specified project.
+
+    Report is emailed to the specified email_addr
+
+    Args:
+    project_name - GitHub project name
+    email_addr - valid email address
+    project_objs - list of GitHub project objects
+
+    """
+
+    proj_obj = get_project_obj(project_name, project_objs)
+    if proj_obj is None:
+        userlog.error("Cannot get project object for %s", proj_name)
+        return
+
+    column_objs = proj_obj.get_columns()
+
+    email_body = (
+        """<p>This ia an automated email for the Core OS weekly report</p> """
     )
 
-    for line in body.splitlines():
+    issues = []
 
-        # Remove any leading whitespace at the start of the line
-        line = line.lstrip()
+    # Process project columns
+    for column in column_objs:
 
-        # Ignore guidance lines
-        if line.startswith("<!--"):
-            in_guide = True
+        # Only interested in the Done and In progress columns
+        if "Done" in column.name:
+            userlog.info("Column '%s' found", column.name)
+            card_status = "(Completed) "
+        elif "In progress" in column.name:
+            userlog.info("Column '%s' found", column.name)
+            card_status = "(In-progress) "
+        else:
+            userlog.info("Column '%s' ignored", column.name)
             continue
 
-        if line.startswith("-->"):
-            in_guide = False
-            continue
+        # Process card contents for the current column
+        proj_cards = column.get_cards()
+        for card in proj_cards:
+            card_content = card.get_content()
 
-        if line.startswith("### Description of defect"):
-            section = "description"
-            continue
+            # Content can return an issue or PR, we only want issues
+            if card_content.pull_request is not None:
+                userlog.info("Ignoring Pull Request card type")
+                continue
 
-        if line.startswith("#### Target(s) affected by this defect"):
-            section = "targets"
-            continue
+            if "mbed-os" in card_content.repository.name:
+                card_repo = "Mbed OS: "
+            elif "mbed-os-tools" in card_content.repository.name:
+                card_repo = "Mbed CLI 1: "
+            elif "mbed-tools" in card_content.repository.name:
+                card_repo = "Mbed CLI 2: "
+            else:
+                continue
 
-        if line.startswith("#### Toolchain(s) (name and version)"):
-            section = "toolchains"
-            continue
+            labels = card_content.labels
+            for label in labels:
+                if "Bug" in label.name:
+                    card_type = "Bugfix: "
+                elif "Maintenance" in label.name:
+                    card_type = "Maintenance: "
+                else:
+                    card_type = ""
 
-        if line.startswith("#### What version of Mbed-os"):
-            section = "mbed_version"
-            continue
-
-        if line.startswith("#### What version(s) of tools"):
-            section = "tools_versions"
-            continue
-
-        if line.startswith("#### How is this defect reproduced"):
-            section = "reproduction"
-            continue
-
-        if section is not None and not in_guide:
-
-            if len(line) > 0:
-                parsed[section]["length"] += len(line.split(" "))
-            parsed[section]["text"] += line + "\n"
-
-    return parsed
-
-def check_github_issue_template(github, parsed, issue, repo):
-    """Check that all the fields in the new template have entries.
-
-    If any data is missing a prompting comment is added to the PR
-    Args:
-    github - top level GitHub object
-    parsed - dictionary containing entries for each template section
-    issue - GitHub issue object
-    repo - GitHub repository object
-
-    Returns:
-    True if the issue template contains sufficient information, False otherwise
-
-    """
-    header_new = "@%s thank you for raising this issue." % issue.user.login
-    header_new += "Please take a look at the following comments:\n\n"
-
-    added_prompt = ""
-
-    if parsed["description"]["length"] < MIN_NUM_DESCRIPTION_WORDS:
-        added_prompt += "Could you add some more detail to the description? "
-        added_prompt += (
-                "A good description should be at least %s words.\n"
-                % MIN_NUM_DESCRIPTION_WORDS
-        )
-
-    if parsed["targets"]["length"] == 0:
-        added_prompt += "What target(s) are you using?\n"
-
-    if parsed["toolchains"]["length"] == 0:
-        added_prompt += "What toolchain(s) are you using?\n"
-
-    if parsed["mbed_version"]["length"] == 0:
-        added_prompt += "What Mbed OS version are you using?\n"
-
-    if parsed["tools_versions"]["length"] == 0:
-        added_prompt += "It would help if you could also specify the versions of any " \
-                        "tools you are using?\n "
-
-    if parsed["reproduction"]["length"] == 0:
-        added_prompt += "How can we reproduce your issue?\n"
-
-    # Check if this issue has previously been parsed and found to have missing
-    # information
-    comments = issue.get_comments()
-
-    # Check if we already have a template update request
-    update_prompted = False
-
-    for comment in comments:
-        if header_new in comment.body:
-            update_prompted = True
-            print(
-                "Found previous comment requesting template update:\n", comment.body
+            # Collate data into the correct category
+            entry = dict(
+                status = card_status,
+                repo = card_repo,
+                type = card_type,
+                num = "#" + str(card_content.number) + " ",
+                title = card_content.title
             )
+            issues.append(entry)
 
-    if added_prompt != "" and not update_prompted:
+    # Compose email contents
+    for issue in issues:
+        line = issue["status"] + issue["repo"] + issue["type"] + issue["num"] + issue["title"]
+        email_body += """<p>%s</p>""" % line
 
-        # There is insufficient information provided for this issue thus publish the
-        # comments.
-
-        prompt = header_new
-        print("Adding new template comment")
-
-        prompt += added_prompt
-        prompt += "\nNOTE: If there are fields which are not applicable then please " \
-                  "just add 'n/a' or 'None'. "
-        prompt += (
-            "This indicates to us that at least all the fields have been considered."
-        )
-        prompt += "\nPlease update the issue header with the missing information. " 
-
-        raise_exception = False
-        _, exc = run_cmd_with_retries(raise_exception, issue.create_comment, prompt)
-
-        if exc:
-            print("Could not add comment to #", issue.number)
-
-def process_issue_header(github, issue, repo):
-    """Get the issue header and checks the description and issue type sections.
-
-    Args: 
-    github - top level GitHub object
-    issue - issue object
-    repo - GitHub repository object
-
-    """
-        
-    # Read the issue body and break the template down into its 
-    # constituent parts
-    parsed = parse_body(issue.body)
-
-    print(
-        "Found the following template data for issue #", 
-        issue.number 
+    email_user(
+        email_addr,
+        "Weekly report data",
+        email_body,
+        "ciarmcom@arm.com"
     )
 
-    print("\tDescription: ", parsed["description"]["text"])
-    print("\tTargets: ", parsed["targets"]["text"])
-    print("\tToolchains: ", parsed["toolchains"]["text"])
-    print("\tMbed Version: ", parsed["mbed_version"]["text"])
-    print("\tTools/versions: ", parsed["tools_versions"]["text"])
-    print("\tHow to reproduce: ", parsed["reproduction"]["text"])
 
-    if parsed is not None:
-        # Check conformance of the issue template
+def tidy_up_closed_issues(project_name, project_objs):
+    """Delete project cards for all closed issues in the project.
 
-        check_github_issue_template(github, parsed, issue, repo)
+    Args:
+    project_name - GitHub project name
+    project_objs - list of GitHub project objects
 
-    else:
-        print(
-            "Issue header could not be parsed."
-        )
+    """
+
+    proj_obj = get_project_obj(project_name, project_objs)
+    if proj_obj is None:
+        userlog.error("Cannot get project object for %s", project_name)
+        return
+
+    column_objs = proj_obj.get_columns()
+
+    card_match = False
+    for column in column_objs:
+        proj_cards = column.get_cards()
+
+        for card in proj_cards:
+            card_content = card.get_content()
+            if card_content.state == "closed":
+
+                userlog.info("Archiving project card for issue #%s from project:%s, column:%s", 
+                    card_content.number, proj_obj.name, column.name)
+                card.edit(archived=True)
+
+
+def email_user(email, subject, body, from_address):
+    """Send an email.
+
+    Args:
+    email - email address to send to
+    subject - email subject
+    body - email body
+    from_address - email address (from)
+
+    """
+    message = Message(From=from_address, To=email)
+    message.Subject = subject
+
+    message.Html = body.encode("ascii", errors="replace")
+
+    sender = Mailer("smtp.emea.arm.com")
+    sender.send(message)
+
 
 def main():
 
     arg_parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    help_issue = "Specify an issue number for new issue triaging. E.g. 1200"
-    arg_parser.add_argument(
-        "-i",
-        "--issue",
-        required=True,
-        help=help_issue
-    )
-
-    help_issue = "Specify a repo name for new issue triaging. E.g. mbed-os"
-    arg_parser.add_argument(
-        "-r",
-        "--repo",
-        required=True,
-        help=help_issue
     )
 
     help_issue = "GitHub token provided by a secret"
@@ -332,59 +257,44 @@ def main():
 
     args = arg_parser.parse_args()
 
-    repo_name = args.repo
-    issue_num = args.issue
+    raise ValueError
 
-    print("Running....")
+    try:
+        # Get GitHub access objects
+        github_class = Github(LOGIN, str(args.token))
 
-    print("Repo name = ", repo_name)
-    print("Issue number = ", issue_num)
+        repo, org = get_repo_and_org(github_class, GIT_ACCOUNT, REPO_NAME)
 
-    # Get GitHub access objects
-    github_class = Github(LOGIN, str(args.token))
+        with exit_on_exception("Cannot get organization projects for: ARMmbed"):
+            project_objs = org.get_projects()
 
-    with exit_on_exception("Cannot get organization for: ARMmbed"):
-        org = github_class.get_organization("ARMmbed")
+        userlog.info("Producing weekly report for %s", REPORT_REPO)
+        produce_weekly_report(REPORT_REPO, REPORT_RECIPIENTS, project_objs)
 
-    workflow_start_col = None
-    severity_start_col = None
+        for proj_name in PROJECTS_TO_TIDY:
+            tidy_up_closed_issues(proj_name, project_objs)
 
-    with exit_on_exception("Cannot get organization issue projects for: ARMmbed"):
-        project_objs = org.get_projects()
-        for proj_obj in project_objs:
 
-            column_objs = proj_obj.get_columns()
-            for column in column_objs:
-                if "Workflow" in proj_obj.name and "Needs Triage" in column.name:
-                    workflow_start_col = column
-                if "Severity" in proj_obj.name and "Untriaged" in column.name:
-                    severity_start_col = column
+    except Exception:
+        # Notify maintainers of bot exception.
+        e = traceback.format_exc()
+        userlog.exception(e)
 
-        if workflow_start_col is None or severity_start_col is None:
-            raise ValueError
+        body = (
+            """<p>THIS IS AN AUTOMATED EMAIL</p> <p>The Weekly automated"""
+            """ script just failed with the following exception:</p> """
+        )
+        for line in e.splitlines():
+            body += """<p>%s</p>""" % line
 
-    repo_obj = get_git_repo(github_class, GIT_ACCOUNT, repo_name)
-
-    if repo_obj:
-
-        try:
-            issue_obj = repo_obj.get_issue(int(issue_num))
-
-            # Add project cards for this issue
-            workflow_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
-            severity_start_col.create_card(content_id = issue_obj.id, content_type = "Issue")
-
-            # Add priority untriaged label
-            issue_obj.add_to_labels("priority: untriaged")
-
-            # Set component to Untriaged
-            issue_obj.add_to_labels("component: untriaged")
-
-        except Exception as exc:
-            print("Could not add issue cards to projects!")
-            
-        # Now validate issue header and comment if required
-        process_issue_header(github_class, issue_obj, repo_obj)
+        body += """<p>If you are expecting to receive the weekly report """
+        body += """note it may be delayed. Please contact the Mbed OS maintainers. </p>"""
+        email_user(
+            ["mbed-os-maintainers@arm.com", REPORT_RECIPIENTS],
+            "Weekly Script FAILURE",
+            body,
+            "ciarmcom@arm.com"
+        )
 
 
 if __name__ == "__main__":
